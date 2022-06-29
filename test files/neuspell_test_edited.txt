@@ -1,0 +1,741 @@
+neuspell_test
+Notebook Instructions¶
+If you are new to Jupyter notebooks, please go through this introductory manual here.
+Any changes made in this notebook would be lost after you close the browsr window. You can download the notebook to save your work on your PC.
+Before running this notebook on your local PC:
+i.
+You need to set up a Python environment and the relevant packages on your local PC. To do so, go through the section on "Run Codes Locally on Your Machine" in the course.
+ii. You need to download the zip fie available in the last unit of this course. The zip file contains the data files and/or python modules that might be required to run this notebook.
+In the previous unit, we generated entry, exit signals of a moving average trading strategy and calculated teh strategy returns. In this notebook, we will backtest the trading signals over 12 years in-detail and genrate the trade sheet.
+The notebook is structured as follows:
+Import the Data
+Calculate the Crossovers
+Generate Trade Sheet
+Calculate Trade PnL
+Conclusion
+In [1]:
+# Import libraries for data manipulation
+import pandas as pd
+import numpy as np
+Import the Data¶Import the file Entry_Exit_Signals.csv usng the read_csv method of pandas. This file has the daily 'Open', 'High', 'Low', 'Close', 'Volume', 'ma_short', 'ma_long', 'signal', 'long_cross_over' and 'exit_cross_over' of the S&P 500 index from 2010-01-01 to 2022-05-31.
+This csv file is available in the zipfile of the unit 'Python Codes and Data' in the 'Course Summary' section.
+In [2]:
+# Import the close price data of SP500 stocks
+data = pd.read_csv(
+"../data_modules/trading_signals.csv", index_col=0, parse_dates=True,
+)
+data.tail()
+Out[2]:
+Open
+High
+Low
+Close
+Volume
+ma_short
+ma_long
+signal
+Date
+2022-05-23
+3919.419922
+3981.879883
+3909.040039
+3973.750000
+3392770000
+3965.065565
+4078.753825
+0
+2022-05-24
+3942.939941
+3955.679932
+3875.129883
+3941.479980
+3901640000
+3965.765571
+4061.866199
+0
+2022-05-25
+3929.590088
+3999.330078
+3925.030029
+3978.729980
+4322190000
+3971.171115
+4052.510475
+0
+2022-05-26
+3984.600098
+4075.139893
+3984.600098
+4057.840088
+3961940000
+3974.943359
+4046.504767
+0
+2022-05-27
+4077.429932
+4158.490234
+4077.429932
+4158.240234
+3560560000
+3991.635607
+4040.349540
+0
+Calculate the Crossovers¶To generate the trade sheets, we need to label the days of moving average crossovers.
+Create a column long_cross_over to store the entry condition of the moving averages crossover trading strategy on a given day.
+Long entry is confirmed today when:
+short term moving avrage < long term moving average on the previous day and
+short term moving average > long term moving average on today.
+We will enter long once the long entry is confirmed.
+long_cross_over = True, on the day of long entry
+long_cross_over = False, on all days except on the day of lng entry
+In [3]:
+# Create a column 'long_cross_over' to store the long crossover conditions
+data['long_cross_over'] = np.where((data.ma_short.shift(
+1) < data.ma_long.shift(1)) & (data.ma_short >= data.ma_long), True, False)
+Create a column exit_cross_over to store the long exit conditions of the moving averages crossover trading strategy on a given day.
+Long exit is confirmed today when:
+short term moving average > long term moving average on the previous day and
+short term moving average < long term moving average on today.
+We will exit the long position once the long exit is confirmed.
+squareoff_cross_over = True, on the day of long exit
+squareoff_cross_over = False, on all days except on the day of long exit
+In [4]:
+# Create a column 'exit_cross_over' to store the long exit conditions
+data['exit_cross_over'] = np.where((data.ma_short.shift(1) > data.ma_long.shift(1)) & (data.ma_short <= data.ma_long), True, False)
+data.tail()
+Out[4]:
+Open
+High
+Low
+Close
+Volume
+ma_short
+ma_long
+signal
+long_cross_over
+exit_cross_over
+Date
+2022-05-23
+3919.419922
+3981.879883
+3909.040039
+3973.750000
+3392770000
+3965.065565
+4078.753825
+0
+False
+False
+2022-05-24
+3942.939941
+3955.679932
+3875.129883
+3941.479980
+3901640000
+3965.765571
+4061.866199
+0
+False
+False
+2022-05-25
+3929.590088
+3999.330078
+3925.030029
+3978.729980
+4322190000
+3971.171115
+4052.510475
+0
+False
+False
+2022-05-26
+3984.600098
+4075.139893
+3984.600098
+4057.840088
+3961940000
+3974.943359
+4046.504767
+0
+False
+False
+2022-05-27
+4077.429932
+4158.490234
+4077.429932
+4158.240234
+3560560000
+3991.635607
+4040.349540
+0
+False
+False
+Generate Trade Sheet¶The following is the flow chart of steps to backtest the moving average crossover strategy.
+Step-1: Create and empty dataframe trades with columns Position, Entry Date, Entry Price, Exit Date, Exit Price to store the trade details.
+In [5]:
+# Create a dataframe 'trade_sheet' to store the trades
+trade_sheet = pd.DataFrame()
+Step-2: Create a varible current_position to store '1' when holding a long position and '0' when no position is open. Initialise the current_position as '0' since we don't hold any position at the beginning of the backtest.
+In [6]:
+# Initialise the current_position as '0' since we don't hold any position at the beginning of the backtest
+current_position = 0
+Step-3: Define the variables entry_date, entry_price, exit_date and exit_price.
+In [7]:
+# Define a variable to store the long entry date
+entry_date = ''
+# Define a variable to store the long entry price
+entry_price = ''
+# Define a variable to store the long exit date
+exit_date = ''
+# Define a variable to store the long exit price
+exit_price = ''
+Repeat the steps 4 and 5 for the dates in the backtest period.
+Step-4: For a given date, if there is no open position and a long entry is confirmed, update the variables entry_date with the given data and entry_price with the close price of the given date. Assign '1' to the variable current_position.
+Step-5: For a given date, if there is an open position and a long exit is confirmed, update the variables exit_date with the given data and exit_price with the close price of the given date. Assign '0' to the variable current_position. Update the trades dataframe with the variables current_position, entry_date, entry_price, exit_date, exit_price.
+In [8]:
+# Iterate over the dates in the dataframe 'data'
+for current_date in data.index:
+# Define the variable 'long_crossover' that stores the long crossover condition on the current_date
+long_crossover = data.loc[current_date, 'long_cross_over']
+# Define the variable 'exit_crossover' that stores the exit crossover value on date current_date
+exit_crossover = data.loc[current_date, 'exit_cross_over']
+# We will enter the long position if we are not holding any position and entry condition is met
+if current_position == 0 and long_crossover == True:
+# Define the variable 'entry_date'
+entry_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'entry price'
+entry_price = data.loc[entry_date, 'Close']
+# Since a new long position is opened, change the state of current_position to '1'
+current_position = 1
+# We will exit the long position if we are holding long position and exit condition is met
+elif current_position == 1 and exit_crossover == True:
+# Define the variable 'exit_date'
+exit_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'exit price'
+exit_price = data.loc[exit_date, 'Close']
+# Append the details of this trade to the 'trade_sheet' dataframe
+trade_sheet = trade_sheet.append(
+[(current_position, entry_date, entry_price, exit_date, exit_price)], ignore_index=True)
+# Since a new long position is closed, change the state of current_position to '0'
+current_position = 0
+# Define the names of columns in 'trade_sheet' dataframe
+trade_sheet.columns = ['Position', 'Entry Date',
+'Entry Price', 'Exit Date', 'Exit Price']
+trade_sheet.tail()
+Out[8]:
+Position
+Entry Date
+Entry Price
+Exit Date
+Exit Price
+68
+1
+2021-05-28
+4204.109863
+2021-09-17
+4432.990234
+69
+1
+2021-10-15
+4471.370117
+2021-11-30
+4567.000000
+70
+1
+2021-12-15
+4709.850098
+2022-01-14
+4662.850098
+71
+1
+2022-02-09
+4587.180176
+2022-02-22
+4304.759766
+72
+1
+2022-03-21
+4461.180176
+2022-04-13
+4446.589844
+We will create a function backtest_trade_sheet to perfrm the above steps. The following is the syntax of the function.
+Syntax:
+backtest_trade_sheet(data, close_column, long_crossover_column, exit_crossover_column)
+Parameters:
+data: Dataframe with date as index and columns representing the data and variables of the trading strategy.
+close_column: Column name of the close prices.
+long_crossover_column: Column name of long crossover condition.
+exit_crossover_column: Column name of exit crossover condition.
+Returns:
+Dataframes with Position, Entry Date, Entry Price, Exit Date, Exit Price as columns
+This function is available in the quantra_backtest.py file in the data_modules folder.
+In [9]:
+def backtest_trade_sheet(data, close_column, long_crossover_column, exit_crossover_column):
+# Create a dataframe 'trade_sheet' to store the trades
+trade_sheet = pd.DataFrame()
+# Initialise the current_position as '0' since we don't hold any position at the beginning of the backtest
+current_position = 0
+# Define a variable to store the long entry date
+entry_date = ''
+# Define a variable to store the long entry price
+entry_price = ''
+# Define a variable to store the long exit date
+exit_date = ''
+# Define a variable to store the long exit price
+exit_price = ''
+# Iterate over the dates in the dataframe 'data'
+for current_date in data.index:
+# Define the variable 'long_crossover' that stores the long crossover condition on the current_date
+long_crossover = data.loc[current_date, long_crossover_column]
+# Define the variable 'exit_crossover' that stores the exit crossover value on date current_date
+exit_crossover = data.loc[current_date, exit_crossover_column]
+# We will enter the long position if we are not holding any position and entry condition is met
+if current_position == 0 and long_crossover == True:
+# Define the variable 'entry_date'
+entry_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'entry price'
+entry_price = data.loc[entry_date, close_column]
+# Since a new long position is opened, change the state of current_position to '1'
+current_position = 1
+# We will exit the long position if we are holding long position and exit condition is met
+elif current_position == 1 and exit_crossover == True:
+# Define the variable 'exit_date'
+exit_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'exit price'
+exit_price = data.loc[exit_date, close_column]
+# Append the details of this trade to the 'trades' dataframe
+trade_sheet = trade_sheet.append(
+[(current_position, entry_date, entry_price, exit_date, exit_price)], ignore_index=True)
+# Since a new long position is closed, change the state of current_position to '0'
+current_position = 0
+# Define the names of columns in 'trades' dataframe
+trade_sheet.columns = ['Position', 'Entry Date',
+'Entry Price', 'Exit Date', 'Exit Price']
+# Return the trades dataframe
+return trade_sheet
+Calculate Trade PnL¶Generate the trade sheet using the backtest_trade_sheet function and calcluate the profit & loss for the trades generated in the backtest timeframe.
+In [10]:
+# Save the trades generated in the dataframe 'crossover_trade_sheet'
+crossover_trade_sheet = backtest_trade_sheet(
+data, 'Close', 'long_cross_over', 'exit_cross_over')
+crossover_trade_sheet['PnL'] = (crossover_trade_sheet['Exit Price'] -
+crossover_trade_sheet['Entry Price']) * crossover_trade_sheet['Position']
+# Print the total profit/loss of the trades generated over the historical time period
+print(f'The total PnL of trades generated between 2010-01-01 and 2022-05-31 is $',
+round(crossover_trade_sheet.PnL.sum(), 2))
+# Print the last 5 rows of the 'crossover_trade_sheet' dataframe
+crossover_trade_sheet.tail()
+The total PnL of trades generated between 2010-01-01 and 2022-05-31 is $ 1505.08
+Out[10]:
+Position
+Entry Date
+Entry Price
+Exit Date
+Exit Price
+PnL
+68
+1
+2021-05-28
+4204.109863
+2021-09-17
+4432.990234
+228.880371
+69
+1
+2021-10-15
+4471.370117
+2021-11-30
+4567.000000
+95.629883
+70
+1
+2021-12-15
+4709.850098
+2022-01-14
+4662.850098
+-47.000000
+71
+1
+2022-02-09
+4587.180176
+2022-02-22
+4304.759766
+-282.420410
+72
+1
+2022-03-21
+4461.180176
+2022-04-13
+4446.589844
+-14.590332
+Conclusion¶In this notebook, we have backtested the moving average crossover tradng strategy over 12 years and generated the trade sheet. In the following units, we will study the performance of this strategy and also perform trade level analytics.neuspell_test
+Notebook Instructions¶
+If you are new to Jupyter notebooks, please go through this introductory manual here.
+Any changes made in this notebook would be lost after you close the browsr window. You can download the notebook to save your work on your PC.
+Before running this notebook on your local PC:
+i.
+You need to set up a Python environment and the relevant packages on your local PC. To do so, go through the section on "Run Codes Locally on Your Machine" in the course.
+ii. You need to download the zip fie available in the last unit of this course. The zip file contains the data files and/or python modules that might be required to run this notebook.
+In the previous unit, we generated entry, exit signals of a moving average trading strategy and calculated teh strategy returns. In this notebook, we will backtest the trading signals over 12 years in-detail and genrate the trade sheet.
+The notebook is structured as follows:
+Import the Data
+Calculate the Crossovers
+Generate Trade Sheet
+Calculate Trade PnL
+Conclusion
+In [1]:
+# Import libraries for data manipulation
+import pandas as pd
+import numpy as np
+Import the Data¶Import the file Entry_Exit_Signals.csv usng the read_csv method of pandas. This file has the daily 'Open', 'High', 'Low', 'Close', 'Volume', 'ma_short', 'ma_long', 'signal', 'long_cross_over' and 'exit_cross_over' of the S&P 500 index from 2010-01-01 to 2022-05-31.
+This csv file is available in the zipfile of the unit 'Python Codes and Data' in the 'Course Summary' section.
+In [2]:
+# Import the close price data of SP500 stocks
+data = pd.read_csv(
+"../data_modules/trading_signals.csv", index_col=0, parse_dates=True,
+)
+data.tail()
+Out[2]:
+Open
+High
+Low
+Close
+Volume
+ma_short
+ma_long
+signal
+Date
+2022-05-23
+3919.419922
+3981.879883
+3909.040039
+3973.750000
+3392770000
+3965.065565
+4078.753825
+0
+2022-05-24
+3942.939941
+3955.679932
+3875.129883
+3941.479980
+3901640000
+3965.765571
+4061.866199
+0
+2022-05-25
+3929.590088
+3999.330078
+3925.030029
+3978.729980
+4322190000
+3971.171115
+4052.510475
+0
+2022-05-26
+3984.600098
+4075.139893
+3984.600098
+4057.840088
+3961940000
+3974.943359
+4046.504767
+0
+2022-05-27
+4077.429932
+4158.490234
+4077.429932
+4158.240234
+3560560000
+3991.635607
+4040.349540
+0
+Calculate the Crossovers¶To generate the trade sheets, we need to label the days of moving average crossovers.
+Create a column long_cross_over to store the entry condition of the moving averages crossover trading strategy on a given day.
+Long entry is confirmed today when:
+short term moving avrage < long term moving average on the previous day and
+short term moving average > long term moving average on today.
+We will enter long once the long entry is confirmed.
+long_cross_over = True, on the day of long entry
+long_cross_over = False, on all days except on the day of lng entry
+In [3]:
+# Create a column 'long_cross_over' to store the long crossover conditions
+data['long_cross_over'] = np.where((data.ma_short.shift(
+1) < data.ma_long.shift(1)) & (data.ma_short >= data.ma_long), True, False)
+Create a column exit_cross_over to store the long exit conditions of the moving averages crossover trading strategy on a given day.
+Long exit is confirmed today when:
+short term moving average > long term moving average on the previous day and
+short term moving average < long term moving average on today.
+We will exit the long position once the long exit is confirmed.
+squareoff_cross_over = True, on the day of long exit
+squareoff_cross_over = False, on all days except on the day of long exit
+In [4]:
+# Create a column 'exit_cross_over' to store the long exit conditions
+data['exit_cross_over'] = np.where((data.ma_short.shift(1) > data.ma_long.shift(1)) & (data.ma_short <= data.ma_long), True, False)
+data.tail()
+Out[4]:
+Open
+High
+Low
+Close
+Volume
+ma_short
+ma_long
+signal
+long_cross_over
+exit_cross_over
+Date
+2022-05-23
+3919.419922
+3981.879883
+3909.040039
+3973.750000
+3392770000
+3965.065565
+4078.753825
+0
+False
+False
+2022-05-24
+3942.939941
+3955.679932
+3875.129883
+3941.479980
+3901640000
+3965.765571
+4061.866199
+0
+False
+False
+2022-05-25
+3929.590088
+3999.330078
+3925.030029
+3978.729980
+4322190000
+3971.171115
+4052.510475
+0
+False
+False
+2022-05-26
+3984.600098
+4075.139893
+3984.600098
+4057.840088
+3961940000
+3974.943359
+4046.504767
+0
+False
+False
+2022-05-27
+4077.429932
+4158.490234
+4077.429932
+4158.240234
+3560560000
+3991.635607
+4040.349540
+0
+False
+False
+Generate Trade Sheet¶The following is the flow chart of steps to backtest the moving average crossover strategy.
+Step-1: Create and empty dataframe trades with columns Position, Entry Date, Entry Price, Exit Date, Exit Price to store the trade details.
+In [5]:
+# Create a dataframe 'trade_sheet' to store the trades
+trade_sheet = pd.DataFrame()
+Step-2: Create a varible current_position to store '1' when holding a long position and '0' when no position is open. Initialise the current_position as '0' since we don't hold any position at the beginning of the backtest.
+In [6]:
+# Initialise the current_position as '0' since we don't hold any position at the beginning of the backtest
+current_position = 0
+Step-3: Define the variables entry_date, entry_price, exit_date and exit_price.
+In [7]:
+# Define a variable to store the long entry date
+entry_date = ''
+# Define a variable to store the long entry price
+entry_price = ''
+# Define a variable to store the long exit date
+exit_date = ''
+# Define a variable to store the long exit price
+exit_price = ''
+Repeat the steps 4 and 5 for the dates in the backtest period.
+Step-4: For a given date, if there is no open position and a long entry is confirmed, update the variables entry_date with the given data and entry_price with the close price of the given date. Assign '1' to the variable current_position.
+Step-5: For a given date, if there is an open position and a long exit is confirmed, update the variables exit_date with the given data and exit_price with the close price of the given date. Assign '0' to the variable current_position. Update the trades dataframe with the variables current_position, entry_date, entry_price, exit_date, exit_price.
+In [8]:
+# Iterate over the dates in the dataframe 'data'
+for current_date in data.index:
+# Define the variable 'long_crossover' that stores the long crossover condition on the current_date
+long_crossover = data.loc[current_date, 'long_cross_over']
+# Define the variable 'exit_crossover' that stores the exit crossover value on date current_date
+exit_crossover = data.loc[current_date, 'exit_cross_over']
+# We will enter the long position if we are not holding any position and entry condition is met
+if current_position == 0 and long_crossover == True:
+# Define the variable 'entry_date'
+entry_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'entry price'
+entry_price = data.loc[entry_date, 'Close']
+# Since a new long position is opened, change the state of current_position to '1'
+current_position = 1
+# We will exit the long position if we are holding long position and exit condition is met
+elif current_position == 1 and exit_crossover == True:
+# Define the variable 'exit_date'
+exit_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'exit price'
+exit_price = data.loc[exit_date, 'Close']
+# Append the details of this trade to the 'trade_sheet' dataframe
+trade_sheet = trade_sheet.append(
+[(current_position, entry_date, entry_price, exit_date, exit_price)], ignore_index=True)
+# Since a new long position is closed, change the state of current_position to '0'
+current_position = 0
+# Define the names of columns in 'trade_sheet' dataframe
+trade_sheet.columns = ['Position', 'Entry Date',
+'Entry Price', 'Exit Date', 'Exit Price']
+trade_sheet.tail()
+Out[8]:
+Position
+Entry Date
+Entry Price
+Exit Date
+Exit Price
+68
+1
+2021-05-28
+4204.109863
+2021-09-17
+4432.990234
+69
+1
+2021-10-15
+4471.370117
+2021-11-30
+4567.000000
+70
+1
+2021-12-15
+4709.850098
+2022-01-14
+4662.850098
+71
+1
+2022-02-09
+4587.180176
+2022-02-22
+4304.759766
+72
+1
+2022-03-21
+4461.180176
+2022-04-13
+4446.589844
+We will create a function backtest_trade_sheet to perfrm the above steps. The following is the syntax of the function.
+Syntax:
+backtest_trade_sheet(data, close_column, long_crossover_column, exit_crossover_column)
+Parameters:
+data: Dataframe with date as index and columns representing the data and variables of the trading strategy.
+close_column: Column name of the close prices.
+long_crossover_column: Column name of long crossover condition.
+exit_crossover_column: Column name of exit crossover condition.
+Returns:
+Dataframes with Position, Entry Date, Entry Price, Exit Date, Exit Price as columns
+This function is available in the quantra_backtest.py file in the data_modules folder.
+In [9]:
+def backtest_trade_sheet(data, close_column, long_crossover_column, exit_crossover_column):
+# Create a dataframe 'trade_sheet' to store the trades
+trade_sheet = pd.DataFrame()
+# Initialise the current_position as '0' since we don't hold any position at the beginning of the backtest
+current_position = 0
+# Define a variable to store the long entry date
+entry_date = ''
+# Define a variable to store the long entry price
+entry_price = ''
+# Define a variable to store the long exit date
+exit_date = ''
+# Define a variable to store the long exit price
+exit_price = ''
+# Iterate over the dates in the dataframe 'data'
+for current_date in data.index:
+# Define the variable 'long_crossover' that stores the long crossover condition on the current_date
+long_crossover = data.loc[current_date, long_crossover_column]
+# Define the variable 'exit_crossover' that stores the exit crossover value on date current_date
+exit_crossover = data.loc[current_date, exit_crossover_column]
+# We will enter the long position if we are not holding any position and entry condition is met
+if current_position == 0 and long_crossover == True:
+# Define the variable 'entry_date'
+entry_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'entry price'
+entry_price = data.loc[entry_date, close_column]
+# Since a new long position is opened, change the state of current_position to '1'
+current_position = 1
+# We will exit the long position if we are holding long position and exit condition is met
+elif current_position == 1 and exit_crossover == True:
+# Define the variable 'exit_date'
+exit_date = current_date
+# Extract the 'Close price' on the current_date and store in the variable 'exit price'
+exit_price = data.loc[exit_date, close_column]
+# Append the details of this trade to the 'trades' dataframe
+trade_sheet = trade_sheet.append(
+[(current_position, entry_date, entry_price, exit_date, exit_price)], ignore_index=True)
+# Since a new long position is closed, change the state of current_position to '0'
+current_position = 0
+# Define the names of columns in 'trades' dataframe
+trade_sheet.columns = ['Position', 'Entry Date',
+'Entry Price', 'Exit Date', 'Exit Price']
+# Return the trades dataframe
+return trade_sheet
+Calculate Trade PnL¶Generate the trade sheet using the backtest_trade_sheet function and calcluate the profit & loss for the trades generated in the backtest timeframe.
+In [10]:
+# Save the trades generated in the dataframe 'crossover_trade_sheet'
+crossover_trade_sheet = backtest_trade_sheet(
+data, 'Close', 'long_cross_over', 'exit_cross_over')
+crossover_trade_sheet['PnL'] = (crossover_trade_sheet['Exit Price'] -
+crossover_trade_sheet['Entry Price']) * crossover_trade_sheet['Position']
+# Print the total profit/loss of the trades generated over the historical time period
+print(f'The total PnL of trades generated between 2010-01-01 and 2022-05-31 is $',
+round(crossover_trade_sheet.PnL.sum(), 2))
+# Print the last 5 rows of the 'crossover_trade_sheet' dataframe
+crossover_trade_sheet.tail()
+The total PnL of trades generated between 2010-01-01 and 2022-05-31 is $ 1505.08
+Out[10]:
+Position
+Entry Date
+Entry Price
+Exit Date
+Exit Price
+PnL
+68
+1
+2021-05-28
+4204.109863
+2021-09-17
+4432.990234
+228.880371
+69
+1
+2021-10-15
+4471.370117
+2021-11-30
+4567.000000
+95.629883
+70
+1
+2021-12-15
+4709.850098
+2022-01-14
+4662.850098
+-47.000000
+71
+1
+2022-02-09
+4587.180176
+2022-02-22
+4304.759766
+-282.420410
+72
+1
+2022-03-21
+4461.180176
+2022-04-13
+4446.589844
+-14.590332
+Conclusion¶In this notebook, we have backtested the moving average crossover tradng strategy over 12 years and generated the trade sheet. In the following units, we will study the performance of this strategy and also perform trade level analytics.
